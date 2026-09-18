@@ -1,0 +1,3 @@
+- insert:
+    - id: pi-catalog-sync
+      name: 'dsh-pi-catalog-sync'
