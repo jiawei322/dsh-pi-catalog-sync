@@ -42,8 +42,13 @@ pi.dev 把自己的目录以 JSON 公开：
 
 ## 路线图
 
-- ✅ 规划核心（`lib/plan.js`）：8 个单元测试通过，对真实 pi.dev 数据跑通（openrouter → 伴生 23 个新模型；zai-coding-cn / minimax-cn → 原地同步）。
-- ⏳ settings 写入器（`settings.mutate` + revision + 冲突重试）、cordis 接线（`pi-catalog-sync` 配置命名空间、定时刷新、`/pi-catalog-sync` 命令）、Web「模型」页卡片、装进 profile 的端到端验证。
+- ✅ 规划核心（`lib/plan.js`）：对真实 pi.dev 数据跑通（openrouter → 伴生 23 个新模型；zai-coding-cn / minimax-cn → 原地同步）。
+- ✅ settings 写入器（`lib/writer.js`）：`settings.mutate` + revision 校验 + `SETTINGS_CONFLICT` 重试一次、只写变化、dry-run、伴生路由首次创建时才补 `api / baseURL / apiKeyEnv`。19 个单元测试通过。
+- ⏳ cordis 接线（`pi-catalog-sync` 配置命名空间、定时刷新、`/pi-catalog-sync` 命令）、Web「模型」页卡片、装进 profile 的端到端验证。
+
+### 已知限制
+
+- 若某路由的用户配置里带了**非空** `modelOverrides`，`llm-pi-ai` 会拒绝同时携带 `models` 列表的路由。本插件对这类路由**跳过并明确报告**（不折叠、不清空，零数据丢失）；要同步就得先清掉该键，或后续加一个 fold+unset 的可选模式。
 
 ## 开发
 
