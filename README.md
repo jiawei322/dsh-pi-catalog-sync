@@ -25,34 +25,94 @@ pi.dev 把自己的目录以 JSON 公开：
 
 本插件的差异点：**混合协议路由也能同步**——默认不碰原路由，把新模型放进一条伴生路由（`openrouter-live`，api `openai-completions`）。
 
+## 安装
+
+```bash
+dsh plugin add <this repo path or package name>
+```
+
+会写进 `~/.dsh/profiles/web/package.json` 并安装；插件只在 settings 命名空间里留痕，不生成任何其他状态文件。
+
+## 配置（`~/.dsh/settings.yaml`）
+
+```yaml
+pi-catalog-sync:
+  # 空 = 自动使用 DSH 已知（llm-pi-ai 命名空间里已解析出来）且 pi.dev 有目录的路由
+  managedRoutes: []
+  # companion（默认）| route-api | skip
+  mixedProtocolStrategy: companion
+  # 混合协议路由上的新增模型落到哪条路由；source 是原路由
+  companions:
+    - source: openrouter
+      route: openrouter-live
+      api: openai-completions
+      baseURL: https://openrouter.ai/api/v1
+      apiKeyEnv: OPENROUTER_API_KEY
+  keepBuiltinOnly: true
+  forceMaxReasoningEffort: false
+  dryRun: false
+  intervalMinutes: 240
+  startupDelaySeconds: 10
+  catalogTimeoutMs: 30000
+```
+
+| 键 | 说明 |
+| --- | --- |
+| `managedRoutes` | 要同步的路由；留空则自动发现（只挑 pi.dev 有目录的那些） |
+| `mixedProtocolStrategy` | `companion`：原路由不动、新模型进伴生路由；`route-api`：在原路由写 `api: <单一协议>` 并接管全部模型（代价是原本走 anthropic-messages 的模型改走 openai-completions）；`skip`：只报告 |
+| `companions` | 伴生路由定义（`source` = 原混合协议路由）。`api / baseURL / apiKeyEnv` 只在伴生路由**还没**配置该键时才写入 |
+| `keepBuiltinOnly` | 保留内置目录里 pi.dev 已没有的模型（避免迁移期模型凭空消失） |
+| `forceMaxReasoningEffort` | 给所有非空 thinkingFormat 的模型补 `low/high/max` 档位并强制 `supportsReasoningEffort: true`（400 风险自负） |
+| `dryRun` | 只算不写 |
+| `intervalMinutes` | 周期刷新（分钟，0 = 只在启动后跑一轮） |
+| `startupDelaySeconds` | 启动后延迟多少秒跑第一轮（等 llm 适配器就绪） |
+
+## 命令
+
+| 命令 | 说明 |
+| --- | --- |
+| `/pi-catalog-sync` | 立刻同步一轮并返回报告 |
+| `/pi-catalog-sync --dry-run` | 只算不写，返回同样的报告 |
+
+报告长这样：
+
+```
+pi.dev catalog: 39 routes, etag W/"1a2b"
+managed routes: openrouter, zai-coding-cn
+openrouter: mixed-protocol (anthropic-messages, openai-completions) → companion
+  pi.dev 377 · builtin 366 · new 23 · dropped 0
+    companion openrouter-live (openai-completions, https://openrouter.ai/api/v1)
+  openrouter-live: wrote 23 models
+zai-coding-cn: single-protocol (openai-completions) → in-place
+  pi.dev 10 · builtin 10 · new 0 · dropped 0
+  zai-coding-cn: already in sync (10 models)
+```
+
 ## 工作方式
 
-1. 取 pi.dev 全量目录（ETag / 304 复用 + 本地缓存）。
-2. 逐路由判定协议族：内置目录只有一个 api → 原地同步；跨多个 api → 混合协议。
+1. 取 pi.dev 全量目录（ETag / 304 复用 + 内存缓存）。
+2. 逐路由判定协议族：内置目录只有一种 api → 原地同步；跨多种 → 混合协议（内置目录读不到时退回 pi.dev 条目自带的 api 集合）。
 3. 翻译成 settings 可写的模型条目：`name / contextWindow / input`、`reasoningEfforts`（由 pi.dev 的 `thinkingLevelMap` 推导）、`compat.{thinkingFormat,supportsReasoningEffort}`（仅 openai-completions）、容量卫生门（非正整数、或 `maxTokens >= contextWindow` 的列表回声一律不写）。
-4. 经 `settings.mutate` 写入 `llm-pi-ai.providers.<路由>.models`（带 revision，`SETTINGS_CONFLICT` 自动重试一次）。
+4. 经 `settings.mutate('llm-pi-ai', ops, revision)` 写入，只写变化、撞 `SETTINGS_CONFLICT` 重试一次。
 
-混合协议路由的策略（`mixedProtocolStrategy`）：
+## 已知限制
 
-| 值 | 行为 |
-| --- | --- |
-| `companion`（默认） | 原路由保持 pi-ai 内置目录不动；新模型写入伴生路由（api/baseURL 由条目自身推导，可显式配置） |
-| `route-api` | 在原路由上写 `api: <单一协议>`，所有模型（含新增）都在原路由，代价是原本走 anthropic-messages 的模型改走 openai-completions |
-| `skip` | 只报告，不写 |
+- 若某路由的用户配置里带了**非空** `modelOverrides`，`llm-pi-ai` 会拒绝同时携带 `models` 列表的路由。本插件对这类路由**跳过并明确报告**（不折叠、不清空，零数据丢失）；要同步就得先清掉该键。
+- 伴生路由需要自己的凭证：`apiKeyEnv` 指向的环境变量必须和原路由上游一致（OpenRouter 用 `OPENROUTER_API_KEY`）。没配就该路由不写入并报告。
+- 只处理 pi.dev 有目录的路由。
 
 ## 路线图
 
-- ✅ 规划核心（`lib/plan.js`）：对真实 pi.dev 数据跑通（openrouter → 伴生 23 个新模型；zai-coding-cn / minimax-cn → 原地同步）。
-- ✅ settings 写入器（`lib/writer.js`）：`settings.mutate` + revision 校验 + `SETTINGS_CONFLICT` 重试一次、只写变化、dry-run、伴生路由首次创建时才补 `api / baseURL / apiKeyEnv`。19 个单元测试通过。
-- ⏳ cordis 接线（`pi-catalog-sync` 配置命名空间、定时刷新、`/pi-catalog-sync` 命令）、Web「模型」页卡片、装进 profile 的端到端验证。
-
-### 已知限制
-
-- 若某路由的用户配置里带了**非空** `modelOverrides`，`llm-pi-ai` 会拒绝同时携带 `models` 列表的路由。本插件对这类路由**跳过并明确报告**（不折叠、不清空，零数据丢失）；要同步就得先清掉该键，或后续加一个 fold+unset 的可选模式。
+- ✅ 规划核心（`lib/plan.js`）、settings 写入器（`lib/writer.js`）、同步引擎（`lib/sync.js`）、cordis 接线与 `/pi-catalog-sync`（`lib/index.js`）；31 个单元/集成测试。
+- ⏳ Web「模型」页卡片（在设置页预览 diff + 一键同步）。
+- ⏳ `modelOverrides` 的 fold + unset 可选模式。
 
 ## 开发
 
 ```bash
-npm test                                                     # 规划核心单元测试
-PI_AI_DATA_DIR=<pi-ai>/dist/providers/data npm run dry-run  # 只读 dry-run：对比 pi.dev 与本机内置目录
+npm install                                                  # peers（@deepseek-ai/schemastery 等）供测试加载接线层
+npm test                                                     # 31 个测试
+PI_AI_DATA_DIR=<pi-ai>/dist/providers/data npm run dry-run   # 只读 dry-run：对比 pi.dev 与本机内置目录
 ```
+
+`test/index.test.mjs` 在 `@deepseek-ai/schemastery` 缺失时会自动 skip（所以 clone 下来不装依赖也能跑其余 25 个测试）。
