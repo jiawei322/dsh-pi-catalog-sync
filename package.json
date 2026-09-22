@@ -6,6 +6,7 @@
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -44,11 +45,28 @@
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/schemastery": "^3.18.2",
     "@deepseek-ai/dsh-settings": ">=0.1.5-rc.2",
-    "@deepseek-ai/dsh-commands": ">=0.1.5-rc.2"
+    "@deepseek-ai/dsh-commands": ">=0.1.5-rc.2",
+    "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   },
   "dsh": {
+    "engines": {
+      "dsh": ">=0.1.5-rc.1"
+    },
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-api-remotes"
+      ],
+      "platform": "web"
     }
   }
 }

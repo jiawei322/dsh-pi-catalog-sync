@@ -88,6 +88,26 @@ zai-coding-cn: single-protocol (openai-completions) → in-place
   zai-coding-cn: already in sync (10 models)
 ```
 
+## Web 卡片（Settings → Models）
+
+provider 卡片里会多出一块 **pi.dev 目录同步** 面板：
+
+- 最近一轮：触发者（`first` / `scheduled` / `command` / `ui`）、时间、是否 dry-run；
+- 每个路由一行：`openrouter · 伴生 → openrouter-live · pi.dev 377 · 内置 366 · 新增 23 · openrouter-live: wrote`；
+- 两个按钮：**预览 / preview (dry-run)** 与 **立即同步 / sync now**，请求未完成前自动禁用。
+
+浏览器侧不重算任何翻译逻辑，它只往官方 settings 里投一封信：
+
+```yaml
+pi-catalog-sync:
+  request: { at: 1789954000123, dryRun: true }   # 客户端写（带 revision fencing）
+  report:  { at: ..., trigger: ui, requestAt: 1789954000123, routes: [...] }   # host 回写
+```
+
+host 侧 `scope.watch` 看到新的 `request.at`（大于 `report.requestAt`）就跑一轮，并把 `report` 写回同一命名空间；浏览器订阅 `settings/document-updated` 自动刷新。**没有自定义 HTTP 路由、没有 typert 协议、没有源码补丁** —— 整条链路都走 settings 这一个官方接缝。
+
+浏览器半是手写的（仓库里没有构建步骤）：`lib/client.js` 用 `window.__ModuleLoader__.load({ id, factory })` 包装，`require('react')` / `require('react/jsx-runtime')` 由宿主提供，面板本身用 `React.createElement`（不依赖 JSX 编译）。
+
 ## 工作方式
 
 1. 取 pi.dev 全量目录（ETag / 304 复用 + 内存缓存）。
@@ -103,16 +123,16 @@ zai-coding-cn: single-protocol (openai-completions) → in-place
 
 ## 路线图
 
-- ✅ 规划核心（`lib/plan.js`）、settings 写入器（`lib/writer.js`）、同步引擎（`lib/sync.js`）、cordis 接线与 `/pi-catalog-sync`（`lib/index.js`）；31 个单元/集成测试。
-- ⏳ Web「模型」页卡片（在设置页预览 diff + 一键同步）。
+- ✅ 规划核心（`lib/plan.js`）、settings 写入器（`lib/writer.js`）、同步引擎（`lib/sync.js`）、cordis 接线与 `/pi-catalog-sync`（`lib/index.js`）、Web 卡片（`lib/client.js`）；43 个单元/集成测试。
 - ⏳ `modelOverrides` 的 fold + unset 可选模式。
+- ⏳ 伴生路由凭证体检（`apiKeyEnv` 指向的变量是否存在，提前在卡片上报警）。
 
 ## 开发
 
 ```bash
 npm install                                                  # peers（@deepseek-ai/schemastery 等）供测试加载接线层
-npm test                                                     # 31 个测试
+npm test                                                     # 43 个测试（node --test）
 PI_AI_DATA_DIR=<pi-ai>/dist/providers/data npm run dry-run   # 只读 dry-run：对比 pi.dev 与本机内置目录
 ```
 
-`test/index.test.mjs` 在 `@deepseek-ai/schemastery` 缺失时会自动 skip（所以 clone 下来不装依赖也能跑其余 25 个测试）。
+`test/index.test.mjs` 在 `@deepseek-ai/schemastery` 缺失时会自动 skip（所以 clone 下来不装依赖也能跑其余 37 个测试）；`test/client.test.mjs` 用假 React + 假 `__ModuleLoader__` 直接跑 `lib/client.js`，不需要浏览器。
